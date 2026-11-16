@@ -2,10 +2,6 @@ class DatasetBuilder(object):
     @classmethod
     def build(cls, cfg):
         reader_type = cfg.type
-        if reader_type == "FlowTFRecordDataset":
-            from .flow_tfrecord_dataset import FlowTFRecordDataset
-
-            return FlowTFRecordDataset(cfg)
         if reader_type == "TFRecordDataset":
             from .tfrecord_dataset import TFRecordDataset
 

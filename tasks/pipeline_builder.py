@@ -4,7 +4,6 @@ from .pipeline import AdsRecPipeline
 
 mapping = {
     "AdsRecPipeline": AdsRecPipeline,
-    "FlowGenerationPipeline": AdsRecPipeline,
 }
 
 

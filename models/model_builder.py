@@ -35,10 +35,6 @@ class ModelBuilder(object):
         :return: cfg.type指定的具体Model类的对象
         """
         model_type = cfg.type
-        if model_type in ("generation_model", "FlowGenerationModel"):
-            from .generation_model import GenerationModel
-
-            return GenerationModel(cfg)
         if model_type == "RankingModel":
             from .ranking_model import RankingModel
 

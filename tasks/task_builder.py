@@ -1,13 +1,15 @@
 from utils.easydict import EasyDict
-from .predict import PredictTask
-from .train import TrainTask
+from .predict import Predict
+from .train import Train
 
 
 mapping = {
-    "train": TrainTask,
-    "TrainTask": TrainTask,
-    "predict": PredictTask,
-    "PredictTask": PredictTask,
+    "train": Train,
+    "Train": Train,
+    "TrainTask": Train,
+    "predict": Predict,
+    "Predict": Predict,
+    "PredictTask": Predict,
 }
 
 
