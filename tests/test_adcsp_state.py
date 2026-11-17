@@ -25,3 +25,15 @@ class AdCSPPStateTest(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(state.latent_state)))
         self.assertEqual(state.state_version, 3)
 
+    def test_online_history_lists_are_preserved_and_extended(self):
+        state = UserStateBuilder.build(
+            profile(),
+            aggregate_features={"hist_clk_slots": ["slot_old"], "hist_clk_ads": ["ad_old"]},
+            latent_dim=8,
+        )
+        updater = StateUpdater()
+        updater.apply_event(state, Event("u1", "e1", 100, EventType.EXPOSURE, impression_id="i1", slot_id="slot_new", ad_id="ad_new"))
+        updater.apply_event(state, Event("u1", "e2", 101, EventType.CLICK, impression_id="i1", click_id="c1", parent_event_id="e1", slot_id="slot_new", ad_id="ad_new"))
+        self.assertEqual(state.sequence_features["hist_clk_slots"], ["slot_old", "slot_new"])
+        self.assertEqual(state.sequence_features["hist_clk_ads"], ["ad_old", "ad_new"])
+

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Mapping, Sequence
 
 import numpy as np
@@ -96,6 +97,34 @@ class ContextEncoder(nn.Module):
             float(values.get("event_timestamp", 0) % 86_400) / 86_400.0,
         ])
         return self.projection(torch.cat(encoded + [numeric], dim=0)).float()
+
+
+class SequenceFeatureEncoder(nn.Module):
+    """Encode model-ready historical list features such as hist_clk_slots."""
+
+    def __init__(self, output_dim: int = 16, embedding_dim: int = 8, num_embeddings: int = 256, sequence_names=None):
+        super().__init__()
+        self.output_dim = output_dim
+        self.num_embeddings = num_embeddings
+        self.sequence_names = list(sequence_names or ["hist_exp_slots", "hist_exp_ads", "hist_clk_slots", "hist_clk_ads", "hist_clk_categories", "hist_conv_slots", "hist_conv_targets"])
+        self.embeddings = nn.ModuleDict({name: nn.Embedding(num_embeddings, embedding_dim) for name in self.sequence_names})
+        self.projection = nn.Sequential(nn.Linear(len(self.sequence_names) * embedding_dim, output_dim), nn.LayerNorm(output_dim), nn.Tanh())
+
+    def _index(self, value: object) -> int:
+        digest = hashlib.sha1(str(value).encode("utf-8")).digest()
+        return int.from_bytes(digest[:4], "little") % self.num_embeddings
+
+    def forward(self, sequence_features: Mapping[str, Sequence[object]] | None) -> torch.Tensor:
+        values = sequence_features or {}
+        encoded = []
+        for name in self.sequence_names:
+            items = list(values.get(name, []))
+            if items:
+                indices = torch.tensor([self._index(item) for item in items], dtype=torch.long)
+                encoded.append(self.embeddings[name](indices).mean(dim=0))
+            else:
+                encoded.append(torch.zeros(self.embeddings[name].embedding_dim))
+        return self.projection(torch.cat(encoded, dim=0)).float()
 
 
 class ContinuousTimeStateBackbone(nn.Module):

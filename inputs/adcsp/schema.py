@@ -132,6 +132,7 @@ class UserState:
     user_conversion_cnt: Dict[str, int] = field(default_factory=dict)
     user_slot_stats: Dict[str, Dict[str, int]] = field(default_factory=dict)
     sequence_features: Dict[str, List[str]] = field(default_factory=dict)
+    initial_sequence_features: Dict[str, List[str]] = field(default_factory=dict)
     active_impressions: Dict[str, ImpressionState] = field(default_factory=dict)
     active_clicks: Dict[str, ClickState] = field(default_factory=dict)
     state_version: int = 0

@@ -10,7 +10,7 @@ import torch
 from torch import nn
 
 from inputs.adcsp.schema import ClickResult, ConversionResult, Event, EventType, ExposureContext, UserState
-from .encoders import ContextEncoder, ContinuousTimeStateBackbone, StaticUserEncoder
+from .encoders import ContextEncoder, ContinuousTimeStateBackbone, SequenceFeatureEncoder, StaticUserEncoder
 from .heads import ClickHazardHead, ConversionHazardHead
 
 
@@ -21,6 +21,8 @@ class AdCSPPModel(nn.Module):
         vocab_config = (feature_config or {}).get("categorical_vocab", {})
         self.static_encoder = StaticUserEncoder(output_dim=static_dim, vocabs=vocab_config)
         self.context_encoder = ContextEncoder(output_dim=context_dim, vocabs=vocab_config)
+        sequence_names = list((feature_config or {}).get("sequence_features", {}).keys()) or None
+        self.sequence_encoder = SequenceFeatureEncoder(output_dim=context_dim, sequence_names=sequence_names)
         self.backbone = ContinuousTimeStateBackbone(latent_dim, static_dim, context_dim, hidden_dim)
         self.click_head = ClickHazardHead(hidden_dim + context_dim)
         self.conversion_head = ConversionHazardHead(hidden_dim + context_dim)
@@ -31,6 +33,8 @@ class AdCSPPModel(nn.Module):
         context_embedding = torch.zeros(self.context_encoder.projection[0].out_features)
         if context is not None:
             context_embedding = self.context_encoder(context)
+        history_embedding = self.sequence_encoder(state.sequence_features)
+        context_embedding = context_embedding + history_embedding
         return self.backbone(state.latent_state, state.static_embedding, context_embedding, 0.0)
 
     def click_probability(self, state: UserState, context: ExposureContext, window_seconds: int) -> float:

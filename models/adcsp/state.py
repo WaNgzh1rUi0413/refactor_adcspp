@@ -21,6 +21,16 @@ class UserStateBuilder:
         static_embedding: Optional[np.ndarray] = None,
         feature_config: Optional[Mapping[str, object]] = None,
     ) -> UserState:
+        provided_sequence_features = {
+            str(key): list(value)
+            for key, value in (aggregate_features or {}).items()
+            if str(key).startswith("hist_") and isinstance(value, (list, tuple, np.ndarray))
+        }
+        ordered_history = sorted(history_events or [], key=lambda item: (item.event_timestamp, item.event_seq_no))
+        # If event history is supplied, it is the authoritative source. If
+        # only model-ready list features are supplied (the online training
+        # case), preserve them as the initial prefix and append new events.
+        initial_sequence_features = {} if ordered_history else provided_sequence_features
         state = UserState(
             user_id=profile.user_id,
             static_features=profile.to_dict(),
@@ -30,9 +40,11 @@ class UserStateBuilder:
             latent_state=np.zeros(latent_dim, dtype=np.float32),
             last_update_timestamp=0,
             dynamic_features=dict(aggregate_features or {}),
+            sequence_features={key: list(value) for key, value in initial_sequence_features.items()},
+            initial_sequence_features={key: list(value) for key, value in initial_sequence_features.items()},
         )
         updater = StateUpdater(feature_config=feature_config)
-        for event in sorted(history_events or [], key=lambda item: (item.event_timestamp, item.event_seq_no)):
+        for event in ordered_history:
             updater.apply_event(state, event)
         return state
 
@@ -121,6 +133,7 @@ class StateUpdater:
             event_type = EventType(str(spec.get("event_type", "CLICK")))
             field = str(spec.get("field", "slot_id"))
             max_len = max(1, int(spec.get("max_len", 20)))
-            values = [getattr(item, field, None) for item in events if item.event_type is event_type]
+            values = list(state.initial_sequence_features.get(name, []))
+            values.extend(getattr(item, field, None) for item in events if item.event_type is event_type)
             features[name] = [value for value in values if value not in (None, "")][-max_len:]
         return features
