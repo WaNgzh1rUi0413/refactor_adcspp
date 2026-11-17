@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+import zlib
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence
 
@@ -11,6 +12,8 @@ import numpy as np
 from inputs.adcsp.schema import Event, EventType, ExposureContext, SimulationConfig, UserState
 from .ledger import EventLedger
 from .model import AdCSPPModel
+from .fsm import ImpressionFSM
+from .state import StateUpdater
 
 
 @dataclass
@@ -29,8 +32,12 @@ class ConditionalSimulator:
         self.config = config or SimulationConfig()
 
     def simulate(self, user_state: UserState, exposure_plan: Sequence[ExposureContext]) -> SimulationTrajectory:
-        rng = np.random.default_rng(self.config.seed + abs(hash(user_state.user_id)) % 10_000)
-        ledger = EventLedger(user_state)
+        # Python's built-in hash is process-randomized; CRC32 keeps synthetic
+        # traffic reproducible across separate run.py processes.
+        user_seed = zlib.crc32(user_state.user_id.encode("utf-8")) % 10_000
+        rng = np.random.default_rng(self.config.seed + user_seed)
+        updater = StateUpdater(fsm=ImpressionFSM(self.config.click_window_seconds, self.config.conversion_window_seconds))
+        ledger = EventLedger(user_state, updater)
         queue = []
         counter = 0
 

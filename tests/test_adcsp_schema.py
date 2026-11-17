@@ -8,10 +8,6 @@ class AdCSPPSchemaTest(unittest.TestCase):
         event = Event("u1", "e1", 100, EventType.EXPOSURE, impression_id="i1", slot_id="slot_a", ad_id="ad1")
         record = event.to_dict()
         for field in ("user_id", "event_id", "event_timestamp", "event_seq_no", "event_type", "impression_id", "slot_id", "ad_id", "state_version"):
-            # state_version is added by the persistence adapter, while the
-            # event contract exposes every event-level field.
-            if field == "state_version":
-                continue
             self.assertIn(field, record)
         self.assertEqual(record["event_type"], "EXPOSURE")
 

@@ -72,6 +72,7 @@ class Event:
     event_timestamp: int
     event_type: EventType
     event_seq_no: int = 0
+    state_version: int = 0
     event_time_delta: float = 0.0
     impression_id: Optional[str] = None
     click_id: Optional[str] = None

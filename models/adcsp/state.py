@@ -51,6 +51,7 @@ class StateUpdater:
         self.fsm.transition(state, event)
         state.event_history.append(event)
         state.state_version += 1
+        event.state_version = state.state_version
         state.last_update_timestamp = max(state.last_update_timestamp, event.event_timestamp)
         decay = np.exp(-event.event_time_delta / 3_600.0) if event.event_time_delta else 1.0
         state.latent_state = np.asarray(state.latent_state, dtype=np.float32) * decay

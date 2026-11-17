@@ -26,7 +26,7 @@ class _HazardHead(nn.Module):
 
 class ClickHazardHead(_HazardHead):
     def __init__(self, input_dim: int, hidden_dim: int = 32):
-        super().__init__(input_dim, hidden_dim, bias=-3.0)
+        super().__init__(input_dim, hidden_dim, bias=-1.0)
 
 
 class ConversionHazardHead(_HazardHead):

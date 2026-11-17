@@ -6,12 +6,16 @@ from inputs.adcsp.schema import Event, EventType, ImpressionState, ClickState, U
 class ImpressionFSM:
     """Apply the legal state transitions for an impression chain."""
 
+    def __init__(self, click_window_seconds: int = 30, conversion_window_seconds: int = 3_600):
+        self.click_window_seconds = click_window_seconds
+        self.conversion_window_seconds = conversion_window_seconds
+
     def transition(self, state: UserState, event: Event) -> None:
         if event.event_type is EventType.EXPOSURE:
             state.active_impressions[event.impression_id] = ImpressionState(
                 impression_id=event.impression_id,
                 exposure_timestamp=event.event_timestamp,
-                click_deadline=event.event_timestamp + 30,
+                click_deadline=event.event_timestamp + self.click_window_seconds,
                 slot_id=event.slot_id or "",
                 ad_id=event.ad_id or "",
                 creative_id=event.creative_id or "",
@@ -25,7 +29,7 @@ class ImpressionFSM:
                 click_id=event.click_id,
                 impression_id=event.impression_id,
                 click_timestamp=event.event_timestamp,
-                conversion_deadline=event.event_timestamp + 3_600,
+                conversion_deadline=event.event_timestamp + self.conversion_window_seconds,
                 click_event_id=event.event_id,
             )
         elif event.event_type is EventType.CONVERSION:
