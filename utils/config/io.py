@@ -5,7 +5,7 @@ import logging
 
 import yaml
 
-from . import global_variables as gv
+from utils import global_variables as gv
 
 
 def read_yml(file_path, use_e=False):

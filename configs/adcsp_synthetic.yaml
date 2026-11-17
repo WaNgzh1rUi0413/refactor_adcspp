@@ -1,0 +1,19 @@
+run:
+  pipeline_type: AdsRecPipeline
+  steps: [simulate]
+  log_level: INFO
+  num_device: 0
+  num_used_device: 0
+
+simulate:
+  type: simulate
+  simulation:
+    num_users: 8
+    exposures_per_user: 6
+    output_dir: traffic_output
+    seed: 42
+    start_timestamp: 1700000000
+    horizon_seconds: 86400
+    click_window_seconds: 30
+    conversion_window_seconds: 3600
+    latent_dim: 16

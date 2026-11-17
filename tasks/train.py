@@ -14,7 +14,6 @@ from utils.easydict import EasyDict
 from utils.logger import log_decorator
 from .abstract_task import AbstractTask
 from core.model_export import export_onnx
-from metrics.callback_funcs.r2 import R2Validator
 
 
 
@@ -68,6 +67,7 @@ class Train(AbstractTask):
         ]
 
         if self.cfg.get("is_use_r2", False):
+            from metrics.callback_funcs.r2 import R2Validator
             r2_val_output = self.cfg.get("r2_val_output", [])
             r2_val_label = self.cfg.get("r2_val_label", [])
             callbacks.append(R2Validator(self.valid_dataset, r2_val_output, r2_val_label))
