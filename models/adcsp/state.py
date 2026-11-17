@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from typing import Iterable, Mapping, Optional
 
 import numpy as np
@@ -20,6 +19,7 @@ class UserStateBuilder:
         aggregate_features: Optional[Mapping[str, object]] = None,
         latent_dim: int = 16,
         static_embedding: Optional[np.ndarray] = None,
+        feature_config: Optional[Mapping[str, object]] = None,
     ) -> UserState:
         state = UserState(
             user_id=profile.user_id,
@@ -31,7 +31,7 @@ class UserStateBuilder:
             last_update_timestamp=0,
             dynamic_features=dict(aggregate_features or {}),
         )
-        updater = StateUpdater()
+        updater = StateUpdater(feature_config=feature_config)
         for event in sorted(history_events or [], key=lambda item: (item.event_timestamp, item.event_seq_no)):
             updater.apply_event(state, event)
         return state
@@ -40,9 +40,23 @@ class UserStateBuilder:
 class StateUpdater:
     """Mutate UserState only through validated events."""
 
-    def __init__(self, validator: Optional[EventValidator] = None, fsm: Optional[ImpressionFSM] = None):
+    DEFAULT_SEQUENCE_FEATURES = {
+        "hist_exp_slots": {"event_type": "EXPOSURE", "field": "slot_id", "max_len": 20},
+        "hist_exp_ads": {"event_type": "EXPOSURE", "field": "ad_id", "max_len": 20},
+        "hist_clk_slots": {"event_type": "CLICK", "field": "slot_id", "max_len": 20},
+        "hist_clk_ads": {"event_type": "CLICK", "field": "ad_id", "max_len": 20},
+        "hist_clk_categories": {"event_type": "CLICK", "field": "ad_category", "max_len": 20},
+        "hist_conv_slots": {"event_type": "CONVERSION", "field": "slot_id", "max_len": 20},
+        "hist_conv_targets": {"event_type": "CONVERSION", "field": "conversion_target", "max_len": 20},
+    }
+
+    def __init__(self, validator: Optional[EventValidator] = None, fsm: Optional[ImpressionFSM] = None, feature_config: Optional[Mapping[str, object]] = None):
         self.validator = validator or EventValidator()
         self.fsm = fsm or ImpressionFSM()
+        config = dict(feature_config or {})
+        self.dynamic_windows = config.get("dynamic_windows", {"1h": 3_600, "24h": 86_400, "7d": 7 * 86_400})
+        self.sequence_config = dict(self.DEFAULT_SEQUENCE_FEATURES)
+        self.sequence_config.update(config.get("sequence_features", {}))
 
     def apply_event(self, state: UserState, event: Event) -> UserState:
         self.validator.validate(event, state)
@@ -79,12 +93,14 @@ class StateUpdater:
             elif event.event_type is EventType.CONVERSION:
                 slot_stat["conversion"] += 1
         state.dynamic_features = self.recompute_dynamic_features(state, event.event_timestamp)
+        state.sequence_features = {
+            name: list(values) for name, values in state.dynamic_features.items() if name.startswith("hist_")
+        }
         return state
 
-    @staticmethod
-    def recompute_dynamic_features(state: UserState, timestamp: int) -> dict:
+    def recompute_dynamic_features(self, state: UserState, timestamp: int) -> dict:
         events = state.event_history
-        windows = {"1h": 3_600, "24h": 86_400, "7d": 7 * 86_400}
+        windows = {str(name): int(seconds) for name, seconds in self.dynamic_windows.items()}
         features = {}
         for name, seconds in windows.items():
             recent = [item for item in events if timestamp - seconds <= item.event_timestamp <= timestamp]
@@ -101,4 +117,10 @@ class StateUpdater:
         features["repeated_exposure_ratio"] = repeated / len(exposures) if exposures else 0.0
         features["last_exposure_slot"] = exposures[-1].slot_id if exposures else None
         features["last_click_slot"] = next((item.slot_id for item in reversed(events) if item.event_type is EventType.CLICK), None)
+        for name, spec in self.sequence_config.items():
+            event_type = EventType(str(spec.get("event_type", "CLICK")))
+            field = str(spec.get("field", "slot_id"))
+            max_len = max(1, int(spec.get("max_len", 20)))
+            values = [getattr(item, field, None) for item in events if item.event_type is event_type]
+            features[name] = [value for value in values if value not in (None, "")][-max_len:]
         return features

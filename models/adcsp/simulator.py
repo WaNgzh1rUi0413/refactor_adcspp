@@ -36,7 +36,10 @@ class ConditionalSimulator:
         # traffic reproducible across separate run.py processes.
         user_seed = zlib.crc32(user_state.user_id.encode("utf-8")) % 10_000
         rng = np.random.default_rng(self.config.seed + user_seed)
-        updater = StateUpdater(fsm=ImpressionFSM(self.config.click_window_seconds, self.config.conversion_window_seconds))
+        updater = StateUpdater(
+            fsm=ImpressionFSM(self.config.click_window_seconds, self.config.conversion_window_seconds),
+            feature_config=self.config.feature_config,
+        )
         ledger = EventLedger(user_state, updater)
         queue = []
         counter = 0
@@ -45,6 +48,14 @@ class ConditionalSimulator:
             nonlocal counter
             counter += 1
             heapq.heappush(queue, (int(timestamp), int(priority), counter, kind, payload))
+
+        def record(event: Event):
+            ledger.append(event)
+            if self.config.feature_config.get("persist_sequence_features", False):
+                event.metadata["sequence_features"] = {
+                    name: list(values) for name, values in user_state.sequence_features.items()
+                }
+            return event
 
         start = self.config.start_timestamp
         end = start + self.config.horizon_seconds
@@ -59,7 +70,7 @@ class ConditionalSimulator:
             if kind == "exposure":
                 exposure: ExposureContext = payload
                 exposure_event = self._event_from_exposure(user_state.user_id, exposure)
-                ledger.append(exposure_event)
+                record(exposure_event)
                 click_result = self.model.sample_click(user_state, exposure, self.config.click_window_seconds, rng)
                 if click_result.clicked:
                     schedule(timestamp + int(click_result.delay_seconds), 1, "click", (exposure, click_result))
@@ -68,7 +79,7 @@ class ConditionalSimulator:
             elif kind == "click":
                 exposure, click_result = payload
                 click_event = self._click_event(user_state.user_id, exposure, timestamp)
-                ledger.append(click_event)
+                record(click_event)
                 conversion_result = self.model.sample_conversion(user_state, exposure, self.config.conversion_window_seconds, rng)
                 if conversion_result.converted:
                     schedule(timestamp + int(conversion_result.delay_seconds), 2, "conversion", (exposure, click_event, conversion_result))
@@ -76,16 +87,16 @@ class ConditionalSimulator:
                     schedule(timestamp + self.config.conversion_window_seconds, 3, "click_expiry", click_event)
             elif kind == "conversion":
                 exposure, click_event, conversion_result = payload
-                ledger.append(self._conversion_event(user_state.user_id, exposure, click_event, timestamp, conversion_result))
+                record(self._conversion_event(user_state.user_id, exposure, click_event, timestamp, conversion_result))
             elif kind == "impression_expiry":
                 exposure: ExposureContext = payload
                 if exposure.impression_id in user_state.active_impressions:
-                    ledger.append(self._expiry_event(user_state.user_id, exposure, timestamp, impression_id=exposure.impression_id))
+                    record(self._expiry_event(user_state.user_id, exposure, timestamp, impression_id=exposure.impression_id))
             elif kind == "click_expiry":
                 click_event: Event = payload
                 if click_event.click_id in user_state.active_clicks:
                     exposure = self._context_from_state(user_state, click_event.impression_id)
-                    ledger.append(self._expiry_event(user_state.user_id, exposure, timestamp, click_id=click_event.click_id))
+                    record(self._expiry_event(user_state.user_id, exposure, timestamp, click_id=click_event.click_id))
 
         return SimulationTrajectory(user_state.user_id, ledger.events, user_state)
 

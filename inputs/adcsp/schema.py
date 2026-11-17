@@ -131,6 +131,7 @@ class UserState:
     user_click_cnt: int = 0
     user_conversion_cnt: Dict[str, int] = field(default_factory=dict)
     user_slot_stats: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    sequence_features: Dict[str, List[str]] = field(default_factory=dict)
     active_impressions: Dict[str, ImpressionState] = field(default_factory=dict)
     active_clicks: Dict[str, ClickState] = field(default_factory=dict)
     state_version: int = 0
@@ -147,6 +148,7 @@ class SimulationConfig:
     latent_dim: int = 16
     seed: int = 42
     start_timestamp: int = 1_700_000_000
+    feature_config: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "SimulationConfig":

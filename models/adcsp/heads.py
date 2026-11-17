@@ -31,4 +31,6 @@ class ClickHazardHead(_HazardHead):
 
 class ConversionHazardHead(_HazardHead):
     def __init__(self, input_dim: int, hidden_dim: int = 32):
-        super().__init__(input_dim, hidden_dim, bias=-4.0)
+        # Keep the synthetic post-click conversion rate below 1.0 by default;
+        # the value remains learnable when real logs are introduced.
+        super().__init__(input_dim, hidden_dim, bias=-6.0)

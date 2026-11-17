@@ -24,11 +24,22 @@ DEFAULT_VOCABS = {
     "slot_position": ["unknown", "top", "middle", "bottom"],
     "ad_category": ["unknown", "commerce", "content", "finance", "travel"],
     "creative_type": ["unknown", "image", "video", "native"],
+    "creative_size": ["unknown", "square", "portrait", "landscape"],
     "objective_type": ["unknown", "click", "activate", "purchase"],
+    "landing_page_type": ["unknown", "product", "content", "form"],
+    "promotion_target": ["unknown", "purchase", "activate", "signup"],
     "traffic_source": ["unknown", "organic", "search", "push"],
+    "app_category": ["unknown", "shopping"],
     "page_context": ["unknown", "home", "search", "detail"],
     "network_type": ["unknown", "wifi", "4g", "5g"],
 }
+
+
+def merge_vocabs(vocabs=None):
+    merged = {key: list(values) for key, values in DEFAULT_VOCABS.items()}
+    for key, values in (vocabs or {}).items():
+        merged[key] = list(values)
+    return merged
 
 
 def _index(vocab: Sequence[str], value: str) -> int:
@@ -41,7 +52,7 @@ def _index(vocab: Sequence[str], value: str) -> int:
 class StaticUserEncoder(nn.Module):
     def __init__(self, output_dim: int = 16, embedding_dim: int = 8, vocabs=None):
         super().__init__()
-        self.vocabs = vocabs or DEFAULT_VOCABS
+        self.vocabs = merge_vocabs(vocabs)
         fields = ["gender", "age_group", "region", "device_type", "os_type", "user_segment", "user_value_segment"]
         self.fields = fields
         self.embeddings = nn.ModuleDict({field: nn.Embedding(len(self.vocabs[field]), embedding_dim) for field in fields})
@@ -68,8 +79,8 @@ class StaticUserEncoder(nn.Module):
 class ContextEncoder(nn.Module):
     def __init__(self, output_dim: int = 16, embedding_dim: int = 6, vocabs=None):
         super().__init__()
-        self.vocabs = vocabs or DEFAULT_VOCABS
-        fields = ["slot_id", "slot_type", "slot_position", "ad_category", "creative_type", "objective_type", "traffic_source", "page_context", "network_type"]
+        self.vocabs = merge_vocabs(vocabs)
+        fields = ["slot_id", "slot_type", "slot_position", "ad_category", "creative_type", "creative_size", "objective_type", "landing_page_type", "promotion_target", "traffic_source", "app_category", "page_context", "network_type"]
         self.fields = fields
         self.embeddings = nn.ModuleDict({field: nn.Embedding(len(self.vocabs[field]), embedding_dim) for field in fields})
         self.projection = nn.Sequential(nn.Linear(len(fields) * embedding_dim + 5, output_dim), nn.LayerNorm(output_dim), nn.Tanh())

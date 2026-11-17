@@ -15,11 +15,12 @@ from .heads import ClickHazardHead, ConversionHazardHead
 
 
 class AdCSPPModel(nn.Module):
-    def __init__(self, latent_dim: int = 16, static_dim: int = 16, context_dim: int = 16, hidden_dim: int = 32, seed: int = 42):
+    def __init__(self, latent_dim: int = 16, static_dim: int = 16, context_dim: int = 16, hidden_dim: int = 32, seed: int = 42, feature_config=None):
         super().__init__()
         torch.manual_seed(seed)
-        self.static_encoder = StaticUserEncoder(output_dim=static_dim)
-        self.context_encoder = ContextEncoder(output_dim=context_dim)
+        vocab_config = (feature_config or {}).get("categorical_vocab", {})
+        self.static_encoder = StaticUserEncoder(output_dim=static_dim, vocabs=vocab_config)
+        self.context_encoder = ContextEncoder(output_dim=context_dim, vocabs=vocab_config)
         self.backbone = ContinuousTimeStateBackbone(latent_dim, static_dim, context_dim, hidden_dim)
         self.click_head = ClickHazardHead(hidden_dim + context_dim)
         self.conversion_head = ConversionHazardHead(hidden_dim + context_dim)
