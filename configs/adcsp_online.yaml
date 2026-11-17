@@ -1,0 +1,28 @@
+# Online execution contract. This file contains no synthetic traffic controls.
+# The platform supplies real JSONL rows through input.path.
+run:
+  pipeline_type: AdsRecPipeline
+  steps: [adcsp_flow_predict]
+  log_level: INFO
+  num_device: 0
+  num_used_device: 0
+
+input:
+  type: OnlineJsonlTraffic
+  path: data/online_traffic.jsonl
+
+model:
+  type: AdCSPPModel
+  latent_dim: 16
+  static_dim: 16
+  context_dim: 16
+  hidden_dim: 32
+  seed: 42
+
+adcsp_flow_predict:
+  type: AdCSPPFlowPredictTask
+  click_window_seconds: 30
+  conversion_window_seconds: 3600
+  output:
+    path: traffic_output/traffic_predictions.jsonl
+

@@ -1,6 +1,7 @@
 from utils.easydict import EasyDict
 from .train import Train
 from .adcsp_simulation import AdCSPPSimulationTask
+from .adcsp_flow import AdCSPPFlowGenerateTask, AdCSPPFlowPredictTask
 
 
 mapping = {
@@ -10,6 +11,10 @@ mapping = {
     "simulate": AdCSPPSimulationTask,
     "Simulate": AdCSPPSimulationTask,
     "AdCSPPSimulationTask": AdCSPPSimulationTask,
+    "adcsp_flow_generate": AdCSPPFlowGenerateTask,
+    "AdCSPPFlowGenerateTask": AdCSPPFlowGenerateTask,
+    "adcsp_flow_predict": AdCSPPFlowPredictTask,
+    "AdCSPPFlowPredictTask": AdCSPPFlowPredictTask,
 }
 
 
