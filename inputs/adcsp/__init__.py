@@ -1,23 +1,6 @@
-"""AdCSPP input schemas and synthetic traffic generation."""
+"""AdCSPP online input contracts."""
 
-from .schema import (
-    ClickResult,
-    ConversionResult,
-    Event,
-    EventType,
-    ExposureContext,
-    SimulationConfig,
-    UserProfile,
-    UserState,
-)
+from .schema import ExposureContext, UserProfile, UserState
 
-__all__ = [
-    "ClickResult",
-    "ConversionResult",
-    "Event",
-    "EventType",
-    "ExposureContext",
-    "SimulationConfig",
-    "UserProfile",
-    "UserState",
-]
+__all__ = ["ExposureContext", "UserProfile", "UserState"]
+

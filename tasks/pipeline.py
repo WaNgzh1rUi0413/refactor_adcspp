@@ -86,6 +86,9 @@ class AdsRecPipeline(AbstractPipeline):
         if getattr(task, "self_managed", False):
             return
 
+        if getattr(task, "uses_custom_model", False):
+            return
+
         if task.step in ("train", "calibrate", "predict"):
             if not self.model:
                 from models.model_builder import ModelBuilder

@@ -6,7 +6,7 @@
 |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 项目 \| 内容 \| — \| — \| 文档版本 \| V1.1 \| 文档状态 \| 设计方案 \| 模型名称 \| AdCSPP \| 模型类型 \| 连续时间、状态驱动、事件约束的广告用户行为生成模型 \| 核心技术 \| State-Space Point Process、Marked Temporal Point \| |
 | Process、生存分析、有限状态机                                                                                                                                                                                                 |
-| 开发框架 Python / PyTorch                                                                                                                                                                                                     |
+| 开发框架 Python / TensorFlow                                                                                                                                                                                                  |
 | 首期范围 给定曝光条件下生成点击、未点击和延迟转化                                                                                                                                                                             |
 | 后续范围 自主生成曝光机会、广告选择及完整用户流量                                                                                                                                                                             |
 | 原有方案 VAE + DDPM                                                                                                                                                                                                           |
@@ -1476,14 +1476,14 @@ AdCSPP 负责模拟用户行为和环境状态变化，不负责替代强化学�
 
 | 模块 | 推荐技术 |
 | --- | --- |
-| 深度学习 | PyTorch |
+| 深度学习 | TensorFlow |
 | 连续时间点过程 | S2P2 / EasyTPP |
 | 状态管理 | Python |
 | 事件调度 | Priority Queue + Continuous-time Sampler |
 | 状态机 | Python FSM |
 | 数据处理 | NumPy / Pandas / PyArrow |
-| 训练 | PyTorch |
-| 评价 | NumPy / SciPy / PyTorch |
+| 训练 | TensorFlow |
+| 评价 | NumPy / SciPy / TensorFlow |
 | 配置 | YAML |
 
 

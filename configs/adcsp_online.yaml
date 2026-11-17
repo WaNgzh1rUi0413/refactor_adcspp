@@ -1,15 +1,16 @@
-# Online execution contract. This file contains no synthetic traffic controls.
-# The platform supplies real JSONL rows through input.path.
+# Online execution contract. This file contains only model and task controls.
+# The platform's input pipeline supplies TFRecord batches.
 run:
   pipeline_type: AdsRecPipeline
-  steps: [adcsp_flow_predict]
+  steps: [adcsp_flow_train, adcsp_flow_predict]
   log_level: INFO
   num_device: 0
   num_used_device: 0
 
 input:
-  type: OnlineJsonlTraffic
-  path: data/online_traffic.jsonl
+  type: TFRecordDataset
+  # Keep the platform's standard input_column/load_conf sections here.
+  # They are intentionally omitted from this model task template.
 
 model:
   type: AdCSPPModel
@@ -18,11 +19,20 @@ model:
   context_dim: 16
   hidden_dim: 32
   seed: 42
+  checkpoint_path: checkpoints/adcsp_model.weights.h5
 
 adcsp_flow_predict:
   type: AdCSPPFlowPredictTask
+  checkpoint_path: checkpoints/adcsp_model.weights.h5
   click_window_seconds: 30
   conversion_window_seconds: 3600
-  output:
-    path: traffic_output/traffic_predictions.jsonl
+
+adcsp_flow_train:
+  type: AdCSPPFlowTrainTask
+  epochs: 1
+  learning_rate: 0.001
+  conversion_loss_weight: 2.0
+  click_window_seconds: 30
+  conversion_window_seconds: 3600
+  checkpoint_path: checkpoints/adcsp_model.weights.h5
 

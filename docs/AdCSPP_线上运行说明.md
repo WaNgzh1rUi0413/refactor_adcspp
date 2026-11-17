@@ -2,10 +2,9 @@
 
 ## 配置边界
 
-- `configs/adcsp_online.yaml`：线上真实数据预测配置，不生成仿真数据。
-- `configs/adcsp_synthetic.yaml`：本地无数据时的仿真配置，仅用于单元测试和行为链路验证。
+- `configs/adcsp_online.yaml`：线上真实数据训练和预测配置，不生成仿真数据。
 
-线上配置不包含 `num_users`、`exposures_per_user`、`horizon_seconds`、随机种子或仿真窗口等数据生成参数。
+线上配置不包含任何仿真数据生成参数；平台 input pipeline 负责读取 TFRecord。
 
 ## 入口和 task 链路
 
@@ -14,28 +13,35 @@ run.py
   -> PipelineBuilder
   -> AdsRecPipeline
   -> TaskBuilder
-  -> AdCSPPFlowPredictTask
+  -> AdCSPPFlowTrainTask / AdCSPPFlowPredictTask
   -> AdCSPPModel
 ```
 
 当前新增的两个 task：
 
-- `AdCSPPFlowGenerateTask`：本地仿真流量生成，内部调用 `AdCSPPModel`。
-- `AdCSPPFlowPredictTask`：线上 JSONL 条件行为预测，内部调用 `AdCSPPModel.click_probability` 和 `AdCSPPModel.conversion_probability`。
+- `AdCSPPFlowTrainTask`：读取平台提供的 TFRecord dataset，训练点击 hazard 和点击后转化 hazard，保存 TensorFlow weights checkpoint。
+- `AdCSPPFlowPredictTask`：读取平台提供的 TFRecord dataset，调用 `AdCSPPModel.click_probability` 和 `AdCSPPModel.conversion_probability`。
 
 这两个 task 不复用原有监督学习 `Train` / `Predict` task。
 
-## 线上预测输出
+## 流量模型输出
 
-`AdCSPPFlowPredictTask` 保留原始线上字段，并追加：
+流量行为模型只输出行为建模结果：
 
 - `pred_click_probability`
 - `pred_conversion_probability`
-- `expected_future_conversion`
+
+credit、trajectory credit、counterfactual uplift 等归因输出不属于 AdCSPP 流量生成模型。
 
 运行示例：
 
 ```bash
 python run.py --config_path configs/adcsp_online.yaml
+```
+
+默认执行顺序是先训练再预测；只运行预测时可以覆盖 step：
+
+```bash
+python run.py --config_path configs/adcsp_online.yaml --step adcsp_flow_predict
 ```
 
