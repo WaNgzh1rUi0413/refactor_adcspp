@@ -7,17 +7,19 @@ from inputs.adcsp.synthetic_traffic import SyntheticTrafficConfig, SyntheticTraf
 
 
 class AdCSPPGeneratorTest(unittest.TestCase):
-    def test_only_final_event_ledger_is_persisted(self):
+    def test_only_final_online_traffic_is_persisted(self):
         with tempfile.TemporaryDirectory(prefix="adcsp_test_") as directory:
             result = SyntheticTrafficGenerator(SyntheticTrafficConfig(num_users=2, exposures_per_user=3, output_dir=directory, seed=9)).generate()
             files = [path.name for path in Path(directory).iterdir()]
-            self.assertEqual(files, ["traffic_event_ledger.jsonl"])
+            self.assertEqual(files, ["traffic.jsonl"])
             with Path(result.output_path).open(encoding="utf-8") as handle:
                 records = [json.loads(line) for line in handle]
             self.assertEqual(result.user_count, 2)
             self.assertEqual(result.event_count, len(records))
             self.assertTrue(records)
-            self.assertTrue(all("event_type" in record and "impression_id" in record for record in records))
+            self.assertTrue(all("auid" in record and "slot_id" in record for record in records))
+            self.assertTrue(all("is_click" in record and "is_conversion" in record for record in records))
+            self.assertTrue(all("time_stamp" in record and "event_type" not in record for record in records))
 
     def test_feature_vocab_is_read_from_config(self):
         with tempfile.TemporaryDirectory(prefix="adcsp_vocab_") as directory:

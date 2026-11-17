@@ -20,5 +20,5 @@ class AdCSPPTaskTest(unittest.TestCase):
             }))
             task.run()
             self.assertTrue(Path(task.result.output_path).exists())
-            self.assertEqual([item.name for item in Path(directory).iterdir()], ["traffic_event_ledger.jsonl"])
+            self.assertEqual([item.name for item in Path(directory).iterdir()], ["traffic.jsonl"])
 

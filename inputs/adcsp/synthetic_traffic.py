@@ -13,6 +13,7 @@ from models.adcsp.model import AdCSPPModel
 from models.adcsp.simulator import ConditionalSimulator
 from models.adcsp.state import UserStateBuilder
 from inputs.adcsp.schema import ExposureContext, SimulationConfig, UserProfile
+from inputs.adcsp.online_output import trajectory_to_online_records
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class SyntheticTrafficConfig:
     conversion_window_seconds: int = 3_600
     latent_dim: int = 16
     feature_config: dict = field(default_factory=dict)
+    output_filename: str = "traffic.jsonl"
 
 
 @dataclass(frozen=True)
@@ -121,11 +123,20 @@ class SyntheticTrafficGenerator:
             profile = self.build_profile(user_index, rng)
             state = UserStateBuilder.build(profile, latent_dim=self.config.latent_dim)
             plan = self.build_exposure_plan(profile, rng)
-            records.extend(simulator.simulate(state, plan).to_records())
+            trajectory = simulator.simulate(state, plan)
+            records.extend(
+                trajectory_to_online_records(
+                    profile,
+                    plan,
+                    trajectory.events,
+                    initial_sequence_features=state.initial_sequence_features,
+                    feature_config=self.config.feature_config,
+                )
+            )
 
         output_dir = Path(self.config.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / "traffic_event_ledger.jsonl"
+        output_path = output_dir / self.config.output_filename
         with output_path.open("w", encoding="utf-8") as handle:
             for record in records:
                 handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
