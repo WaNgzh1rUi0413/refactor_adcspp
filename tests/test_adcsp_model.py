@@ -10,8 +10,8 @@ from models.adcsp.state import UserStateBuilder
 
 class AdCSPPModelTest(unittest.TestCase):
     def test_encoder_and_hazards_return_finite_values(self):
-        profile = UserProfile("u1", "female", "25_34", "east", "phone", "ios", "active", ("commerce",), 10.0, "medium")
-        context = ExposureContext("i1", 100, "slot_a", "feed", "top", "ad1", "cr1", "camp1", "adv1", "commerce", "purchase", "image", "square", 1.0, 2.0, 0.8, "product", "purchase", "s1", "organic", "shopping", "home", "wifi")
+        profile = UserProfile("u1", {"auid_ctr_90d": 0.2})
+        context = ExposureContext("i1", 100, "slot_a", {"slot_form": "feed", "indu_name": "commerce", "slot_quality_score": 0.8})
         state = UserStateBuilder.build(profile, latent_dim=16)
         model = AdCSPPModel(seed=3)
         embedding = model.encode_history(state, context)
@@ -25,9 +25,9 @@ class AdCSPPModelTest(unittest.TestCase):
         self.assertLessEqual(conversion_probability, 1.0)
 
     def test_differentiable_behavior_outputs_are_probability_bounded(self):
-        profile = UserProfile("u1", "female", "25_34", "east", "phone", "ios", "active", ("commerce",), 10.0, "medium")
-        context = ExposureContext("i1", 100, "slot_a", "feed", "top", "ad1", "cr1", "camp1", "adv1", "commerce", "purchase", "image", "square", 1.0, 2.0, 0.8, "product", "purchase", "s1", "organic", "shopping", "home", "wifi")
-        state = UserStateBuilder.build(profile, aggregate_features={"hist_clk_slot": ["slot_b"]}, latent_dim=16)
+        profile = UserProfile("u1", {"auid_ctr_90d": 0.2})
+        context = ExposureContext("i1", 100, "slot_a", {"slot_form": "feed", "indu_name": "commerce", "slot_quality_score": 0.8})
+        state = UserStateBuilder.build(profile, aggregate_features={"auid_hwdsp_clk_slotid_seq_time_365d": ["slot_b"]}, latent_dim=16)
         model = AdCSPPModel(seed=3)
         click_probability, conversion_probability = model.differentiable_probabilities(state, context, 30, 3600)
         self.assertTrue(np.isfinite(click_probability.numpy()).all())

@@ -1,0 +1,45 @@
+# Offline development only.  The synthetic fixture supplies a logical
+# TFRecord-shaped training stream when platform data is unavailable.  It is
+# not part of the online configuration.
+run:
+  pipeline_type: AdsRecPipeline
+  steps: [adcsp_synthetic_train, adcsp_flow_generate]
+  log_level: INFO
+  num_device: 0
+  num_used_device: 0
+
+model:
+  type: AdCSPPModel
+  latent_dim: 16
+  static_dim: 16
+  context_dim: 16
+  hidden_dim: 32
+  seed: 42
+  checkpoint_path: checkpoints/adcsp_model.weights.h5
+  flow_prior_path: checkpoints/adcsp_flow_prior.json
+
+adcsp_synthetic_train:
+  type: AdCSPPSyntheticTrainTask
+  epochs: 1
+  learning_rate: 0.001
+  conversion_loss_weight: 2.0
+  checkpoint_path: checkpoints/adcsp_model.weights.h5
+  flow_prior_path: checkpoints/adcsp_flow_prior.json
+  synthetic:
+    num_users: 32
+    exposures_per_user: 8
+    sequence_length: 20
+    batch_size: 32
+    seed: 7
+    start_timestamp: 1700000000
+    exposure_gap_seconds: 300
+
+adcsp_flow_generate:
+  type: AdCSPPFlowGenerateTask
+  checkpoint_path: checkpoints/adcsp_model.weights.h5
+  flow_prior_path: checkpoints/adcsp_flow_prior.json
+  generate_from_prior: true
+  num_users: 8
+  num_steps: 8
+  start_timestamp: 1700000000
+  sample: true

@@ -177,9 +177,19 @@ class AdsRecPipeline(AbstractPipeline):
 
             task.valid_dataset = self.valid_dataset
 
-        if task.step == "predict":
+        if task.step in ("predict", "generate"):
+            generate_cfg = self.cfg.get("adcsp_flow_generate", {}) or {}
+            if task.step == "generate" and (
+                task.cfg.get("generate_from_prior", False)
+                or generate_cfg.get("generate_from_prior", False)
+            ):
+                # Prior-only generation has no platform input dataset; the
+                # generation task loads the learned prior artifact itself.
+                task.test_dataset = None
+                task.generate_dataset = None
+                return
             if not self.test_dataset:
-                logging.info("Creating test_dataset")
+                logging.info("Creating test_dataset for %s", task.step)
                 from inputs.dataset_builder import DatasetBuilder
 
                 test_dataset = DatasetBuilder.build(self.cfg.input).build(["test"])[0]
@@ -190,6 +200,8 @@ class AdsRecPipeline(AbstractPipeline):
                 self._cache["test_dataset"] = test_dataset
 
             task.test_dataset = self.test_dataset
+            if task.step == "generate":
+                task.generate_dataset = self.test_dataset
 
     def set_dependent_task(self, task: AbstractTask):
         """

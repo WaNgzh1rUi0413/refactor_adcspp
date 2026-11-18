@@ -1,38 +1,573 @@
-# Online execution contract. This file contains only model and task controls.
-# The platform's input pipeline supplies TFRecord batches.
-run:
-  pipeline_type: AdsRecPipeline
-  steps: [adcsp_flow_train, adcsp_flow_predict]
-  log_level: INFO
-  num_device: 0
-  num_used_device: 0
-
-input:
-  type: TFRecordDataset
-  # Keep the platform's standard input_column/load_conf sections here.
-  # They are intentionally omitted from this model task template.
-
-model:
-  type: AdCSPPModel
-  latent_dim: 16
-  static_dim: 16
-  context_dim: 16
-  hidden_dim: 32
-  seed: 42
-  checkpoint_path: checkpoints/adcsp_model.weights.h5
-
-adcsp_flow_predict:
-  type: AdCSPPFlowPredictTask
-  checkpoint_path: checkpoints/adcsp_model.weights.h5
-  click_window_seconds: 30
-  conversion_window_seconds: 3600
-
-adcsp_flow_train:
-  type: AdCSPPFlowTrainTask
-  epochs: 1
-  learning_rate: 0.001
-  conversion_loss_weight: 2.0
-  click_window_seconds: 30
-  conversion_window_seconds: 3600
-  checkpoint_path: checkpoints/adcsp_model.weights.h5
-
+{
+  "run": {
+    "pipeline_type": "AdsRecPipeline",
+    "steps": [
+      "adcsp_flow_train",
+      "adcsp_flow_generate"
+    ],
+    "log_level": "INFO",
+    "num_device": 0,
+    "num_used_device": 0
+  },
+  "input": {
+    "type": "TFRecordDataset",
+    "input_column": {
+      "sparse": [
+        {
+          "name": "auid",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "slot_id",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "logid",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "slot_form",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "slot_suited_creative_type",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "slot_star_ranking_cn",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "creative_image_size",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "creativetype",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "indu_name",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "task_name",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "developer_up_id",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "developer_up_realname",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "objective_type",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "promotion_target",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "crtvid_conversion_target",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "app_class1",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "app_class2",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "app_class3",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "app_type",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "game_type",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_app_allias_id",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_unique_id",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "media_type_new",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "price_strategy",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "unifiled_tag_level1_all_ssp",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "unifiled_tag_level2_all_ssp",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "unifiled_tag_level3",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "normalized_tag2_id",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "is_video",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "is_short_video",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_click_cnt_30d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_paid_cnt_30d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_paid_rate_smooth_3d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_activate_cnt_14d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_browse_cnt_14d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_click_cnt_14d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_register_count_14d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_retain_cnt_14d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "site_show_cnt_14d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "slot_quality_score",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "slot_avg_click_bid_ecpm_3d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "slot_ctr_3rdpty_dsp_7d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "slot_ctr_3rdpty_dsp_30d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "ecpm_floor_price",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "rt_adid_hwdsp_pred_loan_clk_credit_score_bin_30minute",
+          "data_type": "int64",
+          "seq_max_length": 1
+        },
+        {
+          "name": "rt_adid_hwdsp_pred_loan_clk_credit_score_30minute",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_site_click_cnt_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_normalizedt2_click_cnt_180d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_ctr_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_show_cnt_180d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_app_show_cnt_180d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_app_click_cnt_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_app_ctr_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_appc3_ctr_180d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_slot_show_cnt_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_slotid_imp_cnt_30d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_slot_ctr_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_slot_click_cnt_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_site_show_cnt_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_site_ctr_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "auid_normalizedt2_ctr_90d",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "rt_auid_appid_alldsp_imp_cnt_10minute",
+          "data_type": "float32",
+          "seq_max_length": 1
+        }
+      ],
+      "sparse_seq": [
+        {
+          "name": "site_register_hour_top_30d",
+          "data_type": "int64",
+          "seq_max_length": 3
+        },
+        {
+          "name": "site_paid_hour_top3_30d",
+          "data_type": "int64",
+          "seq_max_length": 3
+        },
+        {
+          "name": "auid_hwdsp_clk_slotid_seq_time_365d",
+          "data_type": "int64",
+          "seq_max_length": 20
+        },
+        {
+          "name": "auid_hwdsp_clk_ts_seq_time_365d",
+          "data_type": "int64",
+          "seq_max_length": 20
+        },
+        {
+          "name": "auid_hwdsp_conv_slotid_seq_time_365d",
+          "data_type": "int64",
+          "seq_max_length": 20
+        },
+        {
+          "name": "auid_hwdsp_conv_ts_seq_time_365d",
+          "data_type": "int64",
+          "seq_max_length": 20
+        },
+        {
+          "name": "auid_hwdsp_conv_evttyp_seq_time_365d",
+          "data_type": "int64",
+          "seq_max_length": 20
+        },
+        {
+          "name": "auid_hwdsp_conv_ocpx_trgt_seq_time_365d",
+          "data_type": "int64",
+          "seq_max_length": 20
+        },
+        {
+          "name": "rt_auid_hwdsp_imp_unclk_3rd_indid_seq_time_12h",
+          "data_type": "int64",
+          "seq_max_length": 20
+        }
+      ],
+      "dense": [
+        {
+          "name": "gender_appid_click_cnt_today",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "gender_slotid_ctr_today",
+          "data_type": "float32",
+          "seq_max_length": 1
+        }
+      ],
+      "labels": [
+        {
+          "name": "label",
+          "data_type": "float32",
+          "seq_max_length": 1
+        },
+        {
+          "name": "label_keyaction",
+          "data_type": "float32",
+          "seq_max_length": 1
+        }
+      ]
+    },
+    "load_conf": {
+      "compression_type": "GZIP",
+      "cycle_length": 4,
+      "block_length": 1,
+      "num_parallel_calls": 4,
+      "shuffle_buffer_size": 10000,
+      "shuffle_seed": 42,
+      "batch_size": 256,
+      "prefetch_size": 2,
+      "buffer_size": 262144,
+      "parallel_load_method": "interleave"
+    }
+  },
+  "model": {
+    "type": "AdCSPPModel",
+    "latent_dim": 16,
+    "static_dim": 16,
+    "context_dim": 16,
+    "hidden_dim": 32,
+    "seed": 42,
+    "checkpoint_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_model.weights.h5",
+    "flow_prior_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_flow_prior.json",
+    "feature_schema": {
+      "user_id_field": "auid",
+      "event_timestamp_field": "logid",
+      "extra_input_fields": [
+        "auid",
+        "slot_id"
+      ],
+      "static_categorical_fields": [],
+      "static_numeric_fields": [
+        "auid_site_click_cnt_90d",
+        "auid_normalizedt2_click_cnt_180d",
+        "auid_ctr_90d",
+        "auid_show_cnt_180d",
+        "auid_app_show_cnt_180d",
+        "auid_app_click_cnt_90d",
+        "auid_app_ctr_90d",
+        "auid_appc3_ctr_180d",
+        "auid_slot_show_cnt_90d",
+        "auid_slotid_imp_cnt_30d",
+        "auid_slot_ctr_90d",
+        "auid_slot_click_cnt_90d",
+        "auid_site_show_cnt_90d",
+        "auid_site_ctr_90d",
+        "auid_normalizedt2_ctr_90d",
+        "rt_auid_appid_alldsp_imp_cnt_10minute",
+        "gender_appid_click_cnt_today",
+        "gender_slotid_ctr_today"
+      ],
+      "sequence_fields": [
+        "auid_hwdsp_clk_slotid_seq_time_365d",
+        "auid_hwdsp_clk_ts_seq_time_365d",
+        "auid_hwdsp_conv_slotid_seq_time_365d",
+        "auid_hwdsp_conv_ts_seq_time_365d",
+        "auid_hwdsp_conv_evttyp_seq_time_365d",
+        "auid_hwdsp_conv_ocpx_trgt_seq_time_365d",
+        "rt_auid_hwdsp_imp_unclk_3rd_indid_seq_time_12h"
+      ],
+      "deferred_sequence_fields": [
+        "rt_auid_alldsp_clk_slotform_seq_cnt_24h",
+        "rt_auid_click_advertiser_list_7d",
+        "rt_auid_hwdsp_clk_prmt_pkgname_seq_time_24h",
+        "rt_auid_hwdsp_clk_advrid_seq_time_24h",
+        "rt_auid_hwdsp_clk_appc3_seq_cnt_24h",
+        "rt_auid_alldsp_clk_site_agappc3_seq_time_24h",
+        "rt_auid_hwdsp_clk_3rd_indid_seq_time_24h",
+        "rt_auid_click_appc3_list_3d",
+        "rt_auid_hwdsp_clk_1st_indid_seq_time_24h",
+        "rt_auid_hwdsp_clk_crtv_clstidh_seq_time_24h",
+        "rt_auid_hwdsp_clk_appc3_seq_time_24h",
+        "auid_hwdsp_reeng_unified_crtv_clstid_time_ubd_list",
+        "auid_hwdsp_clk_unified_crtv_clstid_time_ubd_list",
+        "auid_hwdsp_imp_unified_crtv_clstid_time_top20_30d",
+        "auid_siteid_hwdsp_clk_app_id_dts_ubd_list",
+        "crtv_clstid_stream",
+        "creative_ocr_text_keywords",
+        "creative_text_keywords",
+        "title_text_keywords",
+        "video_prmt_label_class3",
+        "slotid_click_unify_prmt_class1_freq_rank_list",
+        "slotid_click_unify_prmt_class3_freq_rank_list"
+      ],
+      "context_categorical_fields": [
+        "slot_id",
+        "slot_form",
+        "slot_suited_creative_type",
+        "creative_image_size",
+        "creativetype",
+        "indu_name",
+        "task_name",
+        "developer_up_id",
+        "developer_up_realname",
+        "objective_type",
+        "promotion_target",
+        "crtvid_conversion_target",
+        "app_class1",
+        "app_class2",
+        "app_class3",
+        "app_type",
+        "game_type",
+        "site_app_allias_id",
+        "site_unique_id",
+        "media_type_new",
+        "unifiled_tag_level1_all_ssp",
+        "unifiled_tag_level2_all_ssp",
+        "unifiled_tag_level3",
+        "normalized_tag2_id"
+      ],
+      "context_numeric_fields": [
+        "slot_star_ranking_cn",
+        "price_strategy",
+        "is_video",
+        "is_short_video",
+        "site_click_cnt_30d",
+        "site_paid_cnt_30d",
+        "site_paid_rate_smooth_3d",
+        "site_activate_cnt_14d",
+        "site_browse_cnt_14d",
+        "site_click_cnt_14d",
+        "site_register_count_14d",
+        "site_retain_cnt_14d",
+        "site_show_cnt_14d",
+        "site_register_hour_top_30d",
+        "site_paid_hour_top3_30d",
+        "slot_quality_score",
+        "slot_avg_click_bid_ecpm_3d",
+        "slot_ctr_3rdpty_dsp_7d",
+        "slot_ctr_3rdpty_dsp_30d",
+        "ecpm_floor_price",
+        "rt_adid_hwdsp_pred_loan_clk_credit_score_bin_30minute",
+        "rt_adid_hwdsp_pred_loan_clk_credit_score_30minute"
+      ],
+      "labels": {
+        "click": "label",
+        "conversion": "label_keyaction"
+      }
+    }
+  },
+  "adcsp_flow_predict": {
+    "type": "AdCSPPFlowPredictTask",
+    "checkpoint_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_model.weights.h5",
+    "click_window_seconds": 30,
+    "conversion_window_seconds": 3600
+  },
+  "adcsp_flow_generate": {
+    "type": "AdCSPPFlowGenerateTask",
+    "checkpoint_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_model.weights.h5",
+    "flow_prior_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_flow_prior.json",
+    "click_window_seconds": 30,
+    "conversion_window_seconds": 3600,
+    "max_sequence_length": 20,
+    "generate_new_contexts": true,
+    "num_records": null,
+    "sample": true,
+    "seed": 42,
+    "output": {
+      "save_traffic": true,
+      "output_dir": "/opt/huawei/dataset/dataDir/output",
+      "file_name": "generated_traffic.jsonl"
+    }
+  },
+  "adcsp_flow_train": {
+    "type": "AdCSPPFlowTrainTask",
+    "epochs": 1,
+    "max_train_examples": null,
+    "log_every_batches": 20,
+    "log_every_examples": 1000,
+    "learning_rate": 0.001,
+    "conversion_loss_weight": 2.0,
+    "click_window_seconds": 30,
+    "conversion_window_seconds": 3600,
+    "checkpoint_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_model.weights.h5"
+  }
+}
