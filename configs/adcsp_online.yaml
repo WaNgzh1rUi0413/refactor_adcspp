@@ -543,6 +543,7 @@
   },
   "adcsp_flow_generate": {
     "type": "AdCSPPFlowGenerateTask",
+    "generation_mode": "conditional",
     "checkpoint_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_model.weights.h5",
     "flow_prior_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_flow_prior.json",
     "click_window_seconds": 30,
@@ -556,7 +557,13 @@
       "save_traffic": true,
       "output_dir": "/opt/huawei/dataset/dataDir/output",
       "file_name": "generated_traffic.jsonl"
-    }
+    },
+    "candidate_pool": [],
+    "candidate_constraints": {},
+    "num_users": 1,
+    "start_timestamp": 1700000000,
+    "horizon_seconds": 86400,
+    "max_events": 10000
   },
   "adcsp_flow_train": {
     "type": "AdCSPPFlowTrainTask",
@@ -568,6 +575,11 @@
     "conversion_loss_weight": 2.0,
     "click_window_seconds": 30,
     "conversion_window_seconds": 3600,
-    "checkpoint_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_model.weights.h5"
+    "checkpoint_path": "/opt/huawei/dataset/dataDir/output/checkpoints/adcsp_model.weights.h5",
+    "opportunity_training": {
+      "enabled": false,
+      "epochs": 1,
+      "learning_rate": 0.001
+    }
   }
 }

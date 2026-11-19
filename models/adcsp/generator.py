@@ -10,7 +10,7 @@ high-fidelity path generation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Iterable, List, Optional
 
 import numpy as np
@@ -18,6 +18,9 @@ import numpy as np
 from inputs.adcsp.schema import ExposureContext, UserProfile, UserState
 from models.adcsp.state import UserStateBuilder
 from .model import AdCSPPModel
+from .event_generator import HierarchicalEventGenerator
+from .fsm import FiniteStateMachine
+from .opportunity import ExposureOpportunityGenerator
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,7 @@ class GeneratedStep:
     is_conversion: int
     state_before: UserState
     state_after: UserState
+    events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Return an in-memory platform-neutral result; no file serialization."""
@@ -44,6 +48,7 @@ class GeneratedStep:
             "is_conversion": self.is_conversion,
             "state_before": self.state_before,
             "state_after": self.state_after,
+            "events": self.events,
         }
 
 
@@ -63,6 +68,9 @@ class AdCSPPPathGenerator:
         self.conversion_window_seconds = int(conversion_window_seconds)
         self.max_sequence_length = int(max_sequence_length)
         self.rng = np.random.default_rng(seed)
+        self.event_generator = HierarchicalEventGenerator(
+            model, click_window_seconds, conversion_window_seconds, seed=seed
+        )
 
     def rollout(
         self,
@@ -79,21 +87,49 @@ class AdCSPPPathGenerator:
         """
         current = state.clone()
         random = rng or self.rng
+        fsm = FiniteStateMachine(self.click_window_seconds, self.conversion_window_seconds)
         result: List[GeneratedStep] = []
         for context in contexts:
             before = current.clone()
-            click_probability, conversion_probability = self.model.differentiable_probabilities(
-                current, context, self.click_window_seconds, self.conversion_window_seconds
-            )
-            p_click = float(click_probability.numpy())
-            p_conversion = float(conversion_probability.numpy())
-            p_click = float(np.clip(p_click, 0.0, 1.0))
-            p_conversion = float(np.clip(p_conversion, 0.0, 1.0))
-            is_click = int(random.random() < p_click) if sample else int(p_click >= 0.5)
-            # A conversion is causally downstream of a click.  This hard
-            # constraint prevents impossible conversion-only trajectories.
-            is_conversion = int(is_click and (random.random() < p_conversion if sample else p_conversion >= 0.5))
-            current = self.model.transition_state(current, context, is_click, is_conversion, context.event_timestamp)
+            fsm.register_exposure(context)
+            outcome = self.event_generator.generate(current, context, sample=sample, rng=random)
+            p_click = outcome.click_probability
+            p_conversion = outcome.conversion_probability
+            is_click = outcome.is_click
+            is_conversion = outcome.is_conversion
+            if is_click:
+                click_context = replace(context, event_timestamp=int(outcome.click_timestamp or context.event_timestamp))
+                fsm.record_click(click_context)
+                if is_conversion:
+                    conversion_context = replace(context, event_timestamp=int(outcome.conversion_timestamp or click_context.event_timestamp))
+                    fsm.record_conversion(conversion_context)
+            else:
+                # A no-click terminal event is observed when the click window
+                # expires, rather than at the exposure instant.
+                fsm.record_no_click(
+                    replace(context, event_timestamp=int(context.event_timestamp) + self.click_window_seconds)
+                )
+            try:
+                state_timestamp = (
+                    int(outcome.conversion_timestamp or outcome.click_timestamp)
+                    if (is_click and (outcome.click_timestamp is not None))
+                    else int(context.event_timestamp) + self.click_window_seconds
+                )
+                current = self.model.transition_state(
+                    current,
+                    context,
+                    is_click,
+                    is_conversion,
+                    state_timestamp,
+                    click_timestamp=outcome.click_timestamp,
+                    conversion_timestamp=outcome.conversion_timestamp,
+                )
+            except TypeError:
+                # Compatibility with small test doubles and older exported
+                # models that implement the original five-argument API.
+                current = self.model.transition_state(
+                    current, context, is_click, is_conversion, context.event_timestamp
+                )
             _truncate_histories(current, self.max_sequence_length)
             result.append(GeneratedStep(
                 user_id=current.user_id,
@@ -105,6 +141,7 @@ class AdCSPPPathGenerator:
                 is_conversion=is_conversion,
                 state_before=before,
                 state_after=current.clone(),
+                events=fsm.ledger.to_dicts()[-(3 if is_conversion else 2):],
             ))
         return result
 
@@ -126,13 +163,13 @@ class AdCSPPPathGenerator:
         if prior is None:
             raise ValueError("AdCSPPPathGenerator.generate requires a fitted AdCSPPFlowPrior")
         if state is None:
-            profile = prior.sample_profile(user_id=user_id)
+            profile, initial_features = prior.sample_profile_with_history(user_id=user_id)
             # The prior carries the observed user's long-term values and
             # core sequence state, so generation starts from a real history
             # rather than an empty synthetic profile.
             state = UserStateBuilder.build(
                 profile,
-                aggregate_features=profile.features,
+                aggregate_features=initial_features,
                 latent_dim=self.model.latent_dim,
             )
         else:
@@ -142,11 +179,11 @@ class AdCSPPPathGenerator:
             raise ValueError("generate requires a positive start_timestamp or state.last_update_timestamp")
         if num_steps is None:
             num_steps = prior.sample_path_length()
+        opportunity_generator = ExposureOpportunityGenerator(prior)
         contexts = []
         previous = None
         for _ in range(int(num_steps)):
-            timestamp += prior.sample_gap()
-            request = prior.sample_context(profile, timestamp, previous_context=previous)
+            timestamp, request = opportunity_generator.next(profile, timestamp, previous_context=previous)
             contexts.append(request)
             previous = request
         return self.rollout(state, contexts, sample=sample)

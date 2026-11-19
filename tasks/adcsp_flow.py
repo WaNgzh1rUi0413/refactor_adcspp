@@ -15,6 +15,8 @@ from models.adcsp.state import UserStateBuilder
 from models.adcsp.model import AdCSPPModel
 from models.adcsp.generator import AdCSPPPathGenerator
 from models.adcsp.flow_prior import AdCSPPFlowPrior
+from models.adcsp.joint_generator import JointTrafficGenerator
+from losses.adcsp_losses import AdCSPPSurvivalLoss, ExposureOpportunityLoss
 from utils import global_variables as gv
 from utils.easydict import EasyDict
 from .abstract_task import AbstractTask
@@ -61,9 +63,23 @@ class _AdCSPPTaskBase(AbstractTask):
         return AdCSPPTFRecordAdapter(mapping, schema)
 
     @staticmethod
+    def _build_auxiliary_heads(model: AdCSPPModel, state, context) -> None:
+        """Create optional head weights before checkpoint restore or training."""
+        model.differentiable_opportunity_rate(state, context)
+        model.differentiable_candidate_scores(state, [context])
+
+    @staticmethod
     def _restore(model: AdCSPPModel, checkpoint_path: str | None) -> None:
         if checkpoint_path and Path(checkpoint_path).exists():
-            model.load_weights(checkpoint_path)
+            try:
+                model.load_weights(checkpoint_path)
+            except ValueError as error:
+                # Older checkpoints may not contain the optional heads. Keep
+                # compatible behavior weights and
+                # leave those heads at their initialized values until a
+                # head-training run produces a complete checkpoint.
+                logging.warning("Partial AdCSPP checkpoint restore for optional heads: %s", error)
+                model.load_weights(checkpoint_path, by_name=True, skip_mismatch=True)
 
 
 class AdCSPPFlowTrainTask(_AdCSPPTaskBase):
@@ -79,6 +95,7 @@ class AdCSPPFlowTrainTask(_AdCSPPTaskBase):
         adapter = self._adapter()
         optimizer = tf.keras.optimizers.Adam(learning_rate=float(self.cfg.get("learning_rate", model_cfg.get("learning_rate", 1e-3))))
         conversion_weight = float(self.cfg.get("conversion_loss_weight", 2.0))
+        behavior_loss_fn = AdCSPPSurvivalLoss(conversion_weight=conversion_weight)
         click_window = int(self.cfg.get("click_window_seconds", 30))
         conversion_window = int(self.cfg.get("conversion_window_seconds", 3600))
         epochs = int(self.cfg.get("epochs", 1))
@@ -155,6 +172,14 @@ class AdCSPPFlowTrainTask(_AdCSPPTaskBase):
             epochs,
         )
 
+        # Keras versions used by the platform require every tracked layer to
+        # have created its variables before ``model.trainable_variables`` is
+        # accessed.  The opportunity and candidate heads are optional for the
+        # default behavior training path, so build them explicitly from the
+        # first observed request even when their auxiliary losses are disabled.
+        if first_example is not None:
+            self._build_auxiliary_heads(model, first_example.state, first_example.context)
+
         for epoch in range(epochs):
             with tf.GradientTape() as tape:
                 click_probabilities, conversion_probabilities = [], []
@@ -173,6 +198,7 @@ class AdCSPPFlowTrainTask(_AdCSPPTaskBase):
                             click_window,
                             conversion_window,
                             latent_state=latent,
+                            click_outcome=example.is_click,
                         )
                         click_probabilities.append(tf.reshape(click_probability, []))
                         conversion_probabilities.append(tf.reshape(conversion_probability, []))
@@ -199,11 +225,17 @@ class AdCSPPFlowTrainTask(_AdCSPPTaskBase):
                 conversion_probability = tf.stack(conversion_probabilities)
                 click_label = tf.convert_to_tensor(click_labels, dtype=tf.float32)
                 conversion_label = tf.convert_to_tensor(conversion_labels, dtype=tf.float32)
-                click_loss = tf.reduce_mean(tf.keras.losses.binary_crossentropy(click_label, click_probability))
-                conversion_element_loss = tf.keras.losses.binary_crossentropy(conversion_label, conversion_probability)
                 click_mask = tf.stop_gradient(click_label)
-                conversion_loss = tf.reduce_sum(conversion_element_loss * click_mask) / tf.maximum(tf.reduce_sum(click_mask), 1.0)
-                total_loss = click_loss + conversion_weight * conversion_loss
+                behavior_losses = behavior_loss_fn(
+                    click_probability,
+                    click_label,
+                    conversion_probability,
+                    conversion_label,
+                    conversion_mask=click_mask,
+                )
+                total_loss = behavior_losses["loss"]
+                click_loss = behavior_losses["click_loss"]
+                conversion_loss = behavior_losses["conversion_loss"]
 
             gradients = tape.gradient(total_loss, model.trainable_variables)
             optimizer.apply_gradients((gradient, variable) for gradient, variable in zip(gradients, model.trainable_variables) if gradient is not None)
@@ -216,7 +248,16 @@ class AdCSPPFlowTrainTask(_AdCSPPTaskBase):
                 last_metrics["loss"],
             )
 
-        # Build the transition network too.  Otherwise a checkpoint trained
+        opportunity_cfg = self.cfg.get("opportunity_training", {}) or {}
+        if bool(opportunity_cfg.get("enabled", opportunity_cfg.get("train_opportunity", False))):
+            last_metrics.update(self._train_opportunity_head(
+                model,
+                grouped,
+                epochs=int(opportunity_cfg.get("epochs", opportunity_cfg.get("opportunity_epochs", epochs))),
+                learning_rate=float(opportunity_cfg.get("learning_rate", opportunity_cfg.get("opportunity_learning_rate", 1e-3))),
+            ))
+
+        # Build the transition network too. Otherwise a checkpoint trained
         # only on row-wise behavior losses would silently restore without the
         # state-transition variables used by path generation.
         if first_example is not None:
@@ -227,6 +268,36 @@ class AdCSPPFlowTrainTask(_AdCSPPTaskBase):
         model.save_weights(str(checkpoint))
         self.result = {"checkpoint_path": str(checkpoint), "flow_prior_path": str(prior_path), **last_metrics}
         logging.info("AdCSPP behavior training finished: %s", self.result)
+
+    @staticmethod
+    def _train_opportunity_head(model, grouped, epochs: int, learning_rate: float) -> dict:
+        """Fit the opportunity intensity from observed inter-exposure gaps."""
+        pairs = []
+        for user_examples in grouped.values():
+            ordered = sorted(user_examples, key=lambda item: item.context.event_timestamp)
+            for current, following in zip(ordered, ordered[1:]):
+                gap = max(1, int(following.context.event_timestamp) - int(current.context.event_timestamp))
+                pairs.append((current.state, current.context, gap))
+        if not pairs:
+            logging.warning("Opportunity training skipped: no within-user exposure gaps")
+            return {"opportunity_loss": None, "opportunity_pairs": 0}
+
+        # Build the head before selecting its variables. Only the opportunity
+        # head is optimized here; behavior encoders use the behavior loss.
+        model.differentiable_opportunity_rate(pairs[0][0], pairs[0][1])
+        optimizer = tf.keras.optimizers.Adam(learning_rate=float(learning_rate))
+        loss_fn = ExposureOpportunityLoss()
+        last_loss = None
+        for _ in range(max(1, int(epochs))):
+            with tf.GradientTape() as tape:
+                rates = [model.differentiable_opportunity_rate(state, context) for state, context, _ in pairs]
+                gaps = tf.convert_to_tensor([gap for _, _, gap in pairs], dtype=tf.float32)
+                loss = loss_fn(tf.stack(rates), gaps)
+            variables = model.opportunity_head.trainable_variables
+            gradients = tape.gradient(loss, variables)
+            optimizer.apply_gradients((gradient, variable) for gradient, variable in zip(gradients, variables) if gradient is not None)
+            last_loss = float(loss.numpy())
+        return {"opportunity_loss": last_loss, "opportunity_pairs": len(pairs)}
 
 
 class AdCSPPSyntheticTrainTask(AdCSPPFlowTrainTask):
@@ -276,11 +347,14 @@ class AdCSPPFlowPredictTask(_AdCSPPTaskBase):
                 if not restored:
                     # Build all Keras variables before restoring the checkpoint.
                     model.differentiable_probabilities(example.state, example.context, click_window, conversion_window)
+                    self._build_auxiliary_heads(model, example.state, example.context)
                     model.built = True
                     self._restore(model, self.cfg.get("checkpoint_path", model_cfg.get("checkpoint_path")))
                     restored = True
                 outputs["pred_click_probability"].append(model.click_probability(example.state, example.context, click_window))
-                outputs["pred_conversion_probability"].append(model.conversion_probability(example.state, example.context, conversion_window))
+                outputs["pred_conversion_probability"].append(
+                    model.conversion_probability(example.state, example.context, conversion_window, click_outcome=1)
+                )
         self.results = outputs
         self.result = {"record_count": len(outputs["pred_click_probability"]), "outputs": outputs}
         logging.info("AdCSPP behavior prediction finished: %d records", self.result["record_count"])
@@ -289,10 +363,10 @@ class AdCSPPFlowPredictTask(_AdCSPPTaskBase):
 class AdCSPPFlowGenerateTask(_AdCSPPTaskBase):
     """Generate continuous user paths from real platform request contexts.
 
-    The platform still supplies TFRecord features.  This task does not create
-    or serialize JSON and does not choose an ad: it rolls the trained behavior
-    model over the request contexts already present in the input stream,
-    samples click/conversion events, and feeds each event into the next state.
+    The platform supplies TFRecord features and this task rolls the trained
+    behavior model over those request contexts.  It samples click/conversion
+    events, feeds each event into the next state, and optionally writes the
+    platform traffic schema to JSONL for inspection or downstream use.
     """
 
     step = "generate"
@@ -325,17 +399,23 @@ class AdCSPPFlowGenerateTask(_AdCSPPTaskBase):
             slot_id = context.slot_id
             event_timestamp = context.event_timestamp
         state_after = step.get("state_after")
-        row = {
-            **context_features,
+        state_before = step.get("state_before")
+        state_after = step.get("state_after")
+        row = {}
+        if state_before is not None:
+            static_features = getattr(state_before, "static_features", {}) or {}
+            row.update(dict(static_features.get("features", static_features) or {}))
+            row.update(dict(getattr(state_before, "dynamic_features", {}) or {}))
+        row.update(context_features)
+        row.update({
             "auid": step["user_id"],
             "slot_id": slot_id,
             "logid": context_features.get("logid", event_timestamp),
             "is_click": int(step["is_click"]),
             "is_conversion": int(step["is_conversion"]),
-            "click_probability": float(step["click_probability"]),
-            "conversion_probability": float(step["conversion_probability"]),
-        }
+        })
         if state_after is not None:
+            row.update(dict(getattr(state_after, "dynamic_features", {}) or {}))
             for name, values in state_after.sequence_features.items():
                 row[name] = list(values)
         return cls._jsonable(row)
@@ -369,7 +449,71 @@ class AdCSPPFlowGenerateTask(_AdCSPPTaskBase):
         value = self.cfg.get("num_steps")
         return None if value is None else max(1, int(value))
 
+    def _run_joint_generation(self) -> None:
+        """Run the autonomous-opportunity mode through the same generate task."""
+        model_cfg = self._config("model", {}) or {}
+        candidate_pool = list(self.cfg.get("candidate_pool", []) or [])
+        if not candidate_pool:
+            raise ValueError("joint generation requires an upstream candidate_pool")
+        prior_path = self.cfg.get("flow_prior_path", model_cfg.get("flow_prior_path", "checkpoints/adcsp_flow_prior.json"))
+        prior = AdCSPPFlowPrior.load(prior_path)
+        model = self._model()
+        profile, history = prior.sample_profile_with_history(user_id="joint_build")
+        state = UserStateBuilder.build(profile, aggregate_features=history, latent_dim=int(model_cfg.get("latent_dim", 16)))
+        from inputs.adcsp.schema import ExposureContext
+        first_candidate = candidate_pool[0]
+        if not isinstance(first_candidate, ExposureContext):
+            first_candidate = ExposureContext(
+                "joint_build_candidate",
+                int(self.cfg.get("start_timestamp", 1)),
+                str(first_candidate.get("slot_id", "unknown")),
+                dict(first_candidate),
+            )
+        model.differentiable_probabilities(state, first_candidate, int(self.cfg.get("click_window_seconds", 30)), int(self.cfg.get("conversion_window_seconds", 3600)))
+        model.exposure_opportunity_rate(state, first_candidate)
+        model.select_candidate(state, candidate_pool)
+        model.built = True
+        self._restore(model, self.cfg.get("checkpoint_path", model_cfg.get("checkpoint_path")))
+        joint_generator = JointTrafficGenerator(
+            model,
+            click_window_seconds=int(self.cfg.get("click_window_seconds", 30)),
+            conversion_window_seconds=int(self.cfg.get("conversion_window_seconds", 3600)),
+            seed=int(self.cfg.get("seed", model_cfg.get("seed", 42))),
+        )
+        num_users = max(1, int(self.cfg.get("num_users", 1)))
+        start_timestamp = int(self.cfg.get("start_timestamp", 1))
+        horizon_seconds = int(self.cfg.get("horizon_seconds", 86400))
+        all_events = []
+        for index in range(num_users):
+            profile, history = prior.sample_profile_with_history(user_id=f"generated_user_{index}")
+            state = UserStateBuilder.build(profile, aggregate_features=history, latent_dim=int(model_cfg.get("latent_dim", 16)))
+            all_events.extend(joint_generator.generate(
+                state,
+                candidate_pool,
+                start_timestamp=start_timestamp,
+                horizon_seconds=horizon_seconds,
+                policy_embedding=self.cfg.get("policy_embedding"),
+                mask_constraints=self.cfg.get("candidate_constraints"),
+                sample=bool(self.cfg.get("sample", True)),
+                max_events=int(self.cfg.get("max_events", 10000)),
+            ))
+        output_cfg = self.cfg.get("output", {}) or {}
+        output_path = None
+        if bool(output_cfg.get("save_traffic", True)):
+            output_dir = Path(output_cfg.get("output_dir", "outputs"))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / str(output_cfg.get("file_name", "generated_joint_traffic.jsonl"))
+            with output_path.open("w", encoding="utf-8") as handle:
+                for event in all_events:
+                    handle.write(json.dumps(self._jsonable(event), ensure_ascii=False) + "\n")
+        self.results = {"events": all_events}
+        self.result = {"user_count": num_users, "event_count": len(all_events), "traffic_path": str(output_path) if output_path else None}
+
     def run(self) -> None:
+        generation_mode = str(self.cfg.get("generation_mode", "conditional")).lower()
+        if generation_mode in {"joint", "autonomous"}:
+            self._run_joint_generation()
+            return
         dataset = getattr(self, "generate_dataset", None)
         if dataset is None:
             dataset = getattr(self, "test_dataset", None)
@@ -406,11 +550,16 @@ class AdCSPPFlowGenerateTask(_AdCSPPTaskBase):
             # by the training task.  There is deliberately no hand-written
             # feature fallback here.
             flow_prior = AdCSPPFlowPrior.load(prior_path)
-            seed_profile = flow_prior.sample_profile()
-            seed_state = UserStateBuilder.build(seed_profile, latent_dim=int(model_cfg.get("latent_dim", 16)))
+            seed_profile, seed_history = flow_prior.sample_profile_with_history()
+            seed_state = UserStateBuilder.build(
+                seed_profile,
+                aggregate_features=seed_history,
+                latent_dim=int(model_cfg.get("latent_dim", 16)),
+            )
             seed_context = flow_prior.sample_context(seed_profile, int(self.cfg.get("start_timestamp", 1)))
             model.differentiable_probabilities(seed_state, seed_context, click_window, conversion_window)
             model.transition_state(seed_state, seed_context, 0, 0, seed_context.event_timestamp)
+            self._build_auxiliary_heads(model, seed_state, seed_context)
             model.built = True
             self._restore(model, checkpoint_path)
             generated = []
@@ -422,8 +571,12 @@ class AdCSPPFlowGenerateTask(_AdCSPPTaskBase):
                 target_records is None and generated_users < int(requested_users)
             ):
                 index = generated_users
-                profile = flow_prior.sample_profile(user_id=f"generated_user_{index}")
-                state = UserStateBuilder.build(profile, latent_dim=int(model_cfg.get("latent_dim", 16)))
+                profile, history = flow_prior.sample_profile_with_history(user_id=f"generated_user_{index}")
+                state = UserStateBuilder.build(
+                    profile,
+                    aggregate_features=history,
+                    latent_dim=int(model_cfg.get("latent_dim", 16)),
+                )
                 steps = generator.generate(
                     state=state,
                     prior=flow_prior,
@@ -438,6 +591,8 @@ class AdCSPPFlowGenerateTask(_AdCSPPTaskBase):
             self.results = {"trajectories": generated}
             traffic_path = self._save_generated_traffic(generated)
             self.result = {"user_count": generated_users, "step_count": len(generated), "results": self.results, "traffic_path": traffic_path}
+
+
             return
 
         # Group the stream by user and use request timestamps to restore the
@@ -465,6 +620,7 @@ class AdCSPPFlowGenerateTask(_AdCSPPTaskBase):
             if not restored and contexts:
                 model.differentiable_probabilities(initial_state, contexts[0], click_window, conversion_window)
                 model.transition_state(initial_state, contexts[0], 0, 0, contexts[0].event_timestamp)
+                self._build_auxiliary_heads(model, initial_state, contexts[0])
                 model.built = True
                 self._restore(model, self.cfg.get("checkpoint_path", model_cfg.get("checkpoint_path")))
                 restored = True

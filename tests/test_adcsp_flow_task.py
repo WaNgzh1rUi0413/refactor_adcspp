@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 import numpy as np
@@ -138,7 +139,16 @@ class AdCSPPFlowTaskTest(unittest.TestCase):
             generate.run()
             self.assertEqual(generate.result["step_count"], 2)
             self.assertTrue(Path(generate.result["traffic_path"]).exists())
-            self.assertEqual(len(Path(generate.result["traffic_path"]).read_text(encoding="utf-8").splitlines()), 2)
+            traffic_lines = Path(generate.result["traffic_path"]).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(traffic_lines), 2)
+            traffic_row = json.loads(traffic_lines[0])
+            self.assertEqual(traffic_row["auid"], "u1")
+            self.assertIn(traffic_row["is_click"], (0, 1))
+            self.assertIn("auid_ctr_90d", traffic_row)
+            self.assertIn("auid_hwdsp_clk_slotid_seq_time_365d", traffic_row)
+            self.assertNotIn("click_probability", traffic_row)
+            self.assertNotIn("conversion_probability", traffic_row)
+            self.assertNotIn("events", traffic_row)
             self.assertEqual(len(generate.results["trajectories"]), 2)
             for item in generate.results["trajectories"]:
                 self.assertIn("state_before", item)
@@ -146,4 +156,28 @@ class AdCSPPFlowTaskTest(unittest.TestCase):
                 self.assertTrue(0.0 <= item["click_probability"] <= 1.0)
                 self.assertTrue(0.0 <= item["conversion_probability"] <= 1.0)
                 self.assertFalse(item["is_conversion"] and not item["is_click"])
+
+    def test_opportunity_head_can_train_from_observed_gaps(self):
+        features = {
+            "auid": np.array(["u1", "u1", "u1"]),
+            "slot_id": np.array(["slot_a", "slot_b", "slot_a"]),
+            "logid": np.array([100, 110, 120]),
+            "auid_ctr_90d": np.array([0.1, 0.1, 0.1], dtype=np.float32),
+            "auid_hwdsp_clk_slotid_seq_time_365d": np.array([["slot_a"], ["slot_b"], ["slot_a"]]),
+        }
+        labels = {"label": np.array([1.0, 0.0, 1.0]), "label_keyaction": np.array([1.0, 0.0, 0.0])}
+        dataset = tf.data.Dataset.from_tensor_slices((features, labels)).batch(3)
+        with tempfile.TemporaryDirectory(prefix="adcsp_joint_train_") as directory:
+            checkpoint_path = Path(directory) / "model.weights.h5"
+            train = AdCSPPFlowTrainTask(EasyDict({
+                "type": "AdCSPPFlowTrainTask",
+                "checkpoint_path": str(checkpoint_path),
+                "epochs": 1,
+                "opportunity_training": {"enabled": True},
+                "model": {"latent_dim": 16, "static_dim": 16, "context_dim": 16, "hidden_dim": 8},
+            }))
+            train.train_dataset = dataset
+            train.run()
+            self.assertGreaterEqual(train.result["opportunity_pairs"], 2)
+            self.assertTrue(math.isfinite(train.result["opportunity_loss"]))
 

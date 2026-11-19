@@ -78,7 +78,11 @@ class AdCSPPGeneratorTest(unittest.TestCase):
 
     def test_full_generation_requires_and_uses_learned_flow_prior(self):
         profile = UserProfile("u1", {"auid_ctr_90d": 0.2})
-        state = UserStateBuilder.build(profile, aggregate_features={}, latent_dim=4)
+        state = UserStateBuilder.build(
+            profile,
+            aggregate_features={"auid_hwdsp_clk_slotid_seq_time_365d": ["slot-history"]},
+            latent_dim=4,
+        )
         examples = [
             SimpleNamespace(state=state, context=context(0)),
             SimpleNamespace(state=state, context=context(1)),
@@ -88,6 +92,9 @@ class AdCSPPGeneratorTest(unittest.TestCase):
             path = Path(directory) / "flow_prior.json"
             prior.save(path)
             loaded = AdCSPPFlowPrior.load(path)
+            sampled_profile, sampled_history = loaded.sample_profile_with_history(user_id="generated")
+            self.assertNotIn("auid_hwdsp_clk_slotid_seq_time_365d", sampled_profile.features)
+            self.assertIn("auid_hwdsp_clk_slotid_seq_time_365d", sampled_history)
             generated = AdCSPPPathGenerator(AlwaysEngageModel(), seed=2).generate(
                 state=state, prior=loaded, num_steps=3, start_timestamp=100, sample=False
             )

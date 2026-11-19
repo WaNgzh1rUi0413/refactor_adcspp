@@ -57,13 +57,23 @@ class AdCSPPFlowPrior:
         all_timestamps = []
         user_examples = defaultdict(list)
         for example in examples:
+            user_id = str(example.state.user_id)
+            # Keep static profile, dynamic aggregates, and historical lists in
+            # separate namespaces.  Merging them into ``features`` would make
+            # the StaticUserEncoder consume post-event values and violate the
+            # stable-static/dynamic-refresh contract.
             profile = _plain(dict(example.state.static_features))
             profile_features = dict(profile.get("features", {}) or {})
-            profile_features.update(_plain(example.state.dynamic_features))
-            profile_features.update(_plain(example.state.sequence_features))
+            profile.pop("dynamic_features", None)
+            profile.pop("sequence_features", None)
             profile["features"] = profile_features
-            user_id = str(example.state.user_id)
-            users.setdefault(user_id, profile)
+            users.setdefault(user_id, {
+                "user_id": user_id,
+                "static_features": profile_features,
+                "dynamic_features": _plain(example.state.dynamic_features),
+                "sequence_features": _plain(example.state.sequence_features),
+                "initial_sequence_features": _plain(example.state.initial_sequence_features),
+            })
             context = {
                 **_plain(example.context.features),
                 **_plain(example.context.to_dict()),
@@ -101,10 +111,27 @@ class AdCSPPFlowPrior:
 
     def sample_profile(self, user_id: str | None = None) -> UserProfile:
         values = self._sample(self.profiles)
+        static_features = values.get("static_features")
+        if static_features is None:
+            # Backward compatibility with priors created before the namespace
+            # split, where profile features were stored directly.
+            static_features = values.get("features", values)
         return UserProfile(
             user_id=str(user_id or f"generated_user_{int(self.rng.integers(0, 2**31))}"),
-            features=dict(values.get("features", values) or {}),
+            features=dict(static_features or {}),
         )
+
+    def sample_profile_with_history(self, user_id: str | None = None):
+        """Sample a stable profile together with its observed initial state."""
+        values = self._sample(self.profiles)
+        sampled_user_id = str(user_id or f"generated_user_{int(self.rng.integers(0, 2**31))}")
+        static_features = values.get("static_features")
+        if static_features is None:
+            static_features = values.get("features", values)
+        history = {}
+        history.update(values.get("dynamic_features", {}) or {})
+        history.update(values.get("sequence_features", {}) or {})
+        return UserProfile(user_id=sampled_user_id, features=dict(static_features or {})), history
 
     def sample_gap(self) -> int:
         # A missing gap can only happen for a one-row training user.  Use the
